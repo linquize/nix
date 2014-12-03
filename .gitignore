@@ -123,3 +123,9 @@ GPATH
 GRTAGS
 GSYMS
 GTAGS
+
+Debug
+Release
+*.suo
+*.sdf
+*.opensdf
