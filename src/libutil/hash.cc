@@ -22,6 +22,12 @@ extern "C" {
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#ifdef _MSC_VER
+#include <io.h>
+#include <Windows.h>
+#define ssize_t INT_PTR
+#endif
+
 
 namespace nix {
 
@@ -76,7 +82,12 @@ const string base16Chars = "0123456789abcdef";
 
 string printHash(const Hash & hash)
 {
+#ifdef _MSC_VER
+	char * buf = new char[hash.hashSize * 2];
+	std::auto_ptr<char> abuf(buf);
+#else
     char buf[hash.hashSize * 2];
+#endif
     for (unsigned int i = 0; i < hash.hashSize; i++) {
         buf[i * 2] = base16Chars[hash.hash[i] >> 4];
         buf[i * 2 + 1] = base16Chars[hash.hash[i] & 0x0f];
@@ -289,12 +300,12 @@ Hash hashFile(HashType ht, const Path & path)
     Hash hash(ht);
     start(ht, ctx);
 
-    AutoCloseFD fd = open(path.c_str(), O_RDONLY);
+    AutoCloseFD fd = _open(path.c_str(), O_RDONLY);
     if (fd == -1) throw SysError(format("opening file ‘%1%’") % path);
 
     unsigned char buf[8192];
     ssize_t n;
-    while ((n = read(fd, buf, sizeof(buf)))) {
+    while ((n = _read(fd, buf, sizeof(buf)))) {
         checkInterrupt();
         if (n == -1) throw SysError(format("reading file ‘%1%’") % path);
         update(ht, ctx, buf, n);

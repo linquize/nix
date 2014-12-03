@@ -7,11 +7,28 @@
 #include <vector>
 #include <map>
 
+#ifdef _MSC_VER
+#define strcasecmp _stricmp
+#else
 #include <strings.h> // for strcasecmp
+#endif
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#if _MSC_VER
+#include <io.h>
+#include <direct.h>
+int fchmod(int, int) { return 0; }
+#define	S_IRWXU	0000700			/* RWX mask for owner */
+#define	S_IRUSR	0000400			/* R for owner */
+#define	S_IWUSR	0000200			/* W for owner */
+#define	S_IXUSR	0000100			/* X for owner */
+#define	S_ISDIR(m)	((m & 0170000) == 0040000)	/* directory */
+#define	S_ISREG(m)	((m & 0170000) == 0100000)	/* regular file */
+#define	S_ISLNK(m)	((m & 0170000) == 0120000)	/* symbolic link */
+#else
 #include <unistd.h>
+#endif
 #include <dirent.h>
 #include <fcntl.h>
 
@@ -42,7 +59,7 @@ static void dumpContents(const Path & path, size_t size,
     writeString("contents", sink);
     writeLongLong(size, sink);
 
-    AutoCloseFD fd = open(path.c_str(), O_RDONLY);
+    AutoCloseFD fd = _open(path.c_str(), O_RDONLY);
     if (fd == -1) throw SysError(format("opening file ‘%1%’") % path);
 
     unsigned char buf[65536];
@@ -62,7 +79,11 @@ static void dumpContents(const Path & path, size_t size,
 static void dump(const Path & path, Sink & sink, PathFilter & filter)
 {
     struct stat st;
-    if (lstat(path.c_str(), &st))
+#ifdef _MSC_VER
+    if (stat(path.c_str(), &st))
+#else
+	if (lstat(path.c_str(), &st))
+#endif
         throw SysError(format("getting attributes of path ‘%1%’") % path);
 
     writeString("(", sink);
@@ -302,7 +323,11 @@ struct RestoreSink : ParseSink
     void createDirectory(const Path & path)
     {
         Path p = dstPath + path;
-        if (mkdir(p.c_str(), 0777) == -1)
+#ifdef _MSC_VER
+        if (_mkdir(p.c_str()) == -1)
+#else
+		if (mkdir(p.c_str(), 0777) == -1)
+#endif
             throw SysError(format("creating directory ‘%1%’") % p);
     };
 
@@ -310,7 +335,7 @@ struct RestoreSink : ParseSink
     {
         Path p = dstPath + path;
         fd.close();
-        fd = open(p.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0666);
+        fd = _open(p.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0666);
         if (fd == -1) throw SysError(format("creating file ‘%1%’") % p);
     }
 
@@ -319,8 +344,10 @@ struct RestoreSink : ParseSink
         struct stat st;
         if (fstat(fd, &st) == -1)
             throw SysError("fstat");
+#ifndef _MSC_VER
         if (fchmod(fd, st.st_mode | (S_IXUSR | S_IXGRP | S_IXOTH)) == -1)
             throw SysError("fchmod");
+#endif
     }
 
     void preallocateContents(unsigned long long len)

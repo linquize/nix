@@ -4,6 +4,11 @@
 #include <cstring>
 #include <cerrno>
 
+#ifdef _MSC_VER
+#include <io.h>
+#include <Windows.h>
+#define ssize_t INT_PTR
+#endif
 
 namespace nix {
 
@@ -117,7 +122,7 @@ size_t FdSource::readUnbuffered(unsigned char * data, size_t len)
     ssize_t n;
     do {
         checkInterrupt();
-        n = ::read(fd, (char *) data, bufSize);
+        n = _read(fd, (char *) data, bufSize);
     } while (n == -1 && errno == EINTR);
     if (n == -1) throw SysError("reading from file");
     if (n == 0) throw EndOfFile("unexpected end-of-file");

@@ -10,8 +10,30 @@
 #include <sstream>
 #include <cstring>
 
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#include <windows.h>
+#define getcwd _getcwd
+#define ssize_t INT_PTR
+#define PATH_MAX MAX_PATH
+#define STDOUT_FILENO 0
+#define STDERR_FILENO 1
+#define STDIN_FILENO 2
+#define DT_DIR 4
+#define DT_LNK 10
+#define DT_REG 8
+#define DT_UNKNOWN 0
+#define SIGKILL 9
+#define S_IWUSR 0000200
+#define	S_ISDIR(m)	((m & 0170000) == 0040000)
+#define	S_ISREG(m)	((m & 0170000) == 0100000)
+#define S_ISLNK(a) 0
+size_t readlink(const char *, char *, size_t) { return 0; }
+#else
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <limits.h>
 
@@ -168,7 +190,11 @@ bool isInDir(const Path & path, const Path & dir)
 struct stat lstat(const Path & path)
 {
     struct stat st;
+#ifdef _MSC_VER
+    if (stat(path.c_str(), &st))
+#else
     if (lstat(path.c_str(), &st))
+#endif
         throw SysError(format("getting status of ‘%1%’") % path);
     return st;
 }
@@ -178,7 +204,11 @@ bool pathExists(const Path & path)
 {
     int res;
     struct stat st;
+#ifdef _MSC_VER
+    res = stat(path.c_str(), &st);
+#else
     res = lstat(path.c_str(), &st);
+#endif
     if (!res) return true;
     if (errno != ENOENT && errno != ENOTDIR)
         throw SysError(format("getting status of %1%") % path);
@@ -192,7 +222,12 @@ Path readLink(const Path & path)
     struct stat st = lstat(path);
     if (!S_ISLNK(st.st_mode))
         throw Error(format("‘%1%’ is not a symlink") % path);
+#ifdef _MSC_VER
+    char * buf = new char[st.st_size];
+    std::auto_ptr<char> abuf(buf);
+#else
     char buf[st.st_size];
+#endif
     if (readlink(path.c_str(), buf, st.st_size) != st.st_size)
         throw SysError(format("reading symbolic link ‘%1%’") % path);
     return string(buf, st.st_size);
@@ -219,7 +254,11 @@ DirEntries readDirectory(const Path & path)
         checkInterrupt();
         string name = dirent->d_name;
         if (name == "." || name == "..") continue;
+#ifdef _MSC_VER
+        entries.emplace_back(name, 0, 0);
+#else
         entries.emplace_back(name, dirent->d_ino, dirent->d_type);
+#endif
     }
     if (errno) throw SysError(format("reading directory ‘%1%’") % path);
 
@@ -253,7 +292,7 @@ string readFile(int fd)
 
 string readFile(const Path & path, bool drain)
 {
-    AutoCloseFD fd = open(path.c_str(), O_RDONLY);
+    AutoCloseFD fd = _open(path.c_str(), O_RDONLY);
     if (fd == -1)
         throw SysError(format("opening file ‘%1%’") % path);
     return drain ? drainFD(fd) : readFile(fd);
@@ -262,7 +301,7 @@ string readFile(const Path & path, bool drain)
 
 void writeFile(const Path & path, const string & s)
 {
-    AutoCloseFD fd = open(path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0666);
+    AutoCloseFD fd = _open(path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0666);
     if (fd == -1)
         throw SysError(format("opening file ‘%1%’") % path);
     writeFull(fd, s);
@@ -275,7 +314,7 @@ string readLine(int fd)
     while (1) {
         checkInterrupt();
         char ch;
-        ssize_t rd = read(fd, &ch, 1);
+        ssize_t rd = _read(fd, &ch, 1);
         if (rd == -1) {
             if (errno != EINTR)
                 throw SysError("reading a line");
@@ -305,12 +344,16 @@ static void _deletePath(const Path & path, unsigned long long & bytesFreed)
     struct stat st = lstat(path);
 
     if (!S_ISDIR(st.st_mode) && st.st_nlink == 1)
+#if _MSC_VER
+        bytesFreed += st.st_size;
+#else
         bytesFreed += st.st_blocks * 512;
+#endif
 
     if (S_ISDIR(st.st_mode)) {
         /* Make the directory writable. */
         if (!(st.st_mode & S_IWUSR)) {
-            if (chmod(path.c_str(), st.st_mode | S_IWUSR) == -1)
+            if (_chmod(path.c_str(), st.st_mode | S_IWUSR) == -1)
                 throw SysError(format("making ‘%1%’ writable") % path);
         }
 
@@ -343,9 +386,11 @@ static Path tempName(Path tmpRoot, const Path & prefix, bool includePid,
     int & counter)
 {
     tmpRoot = canonPath(tmpRoot.empty() ? getEnv("TMPDIR", "/tmp") : tmpRoot, true);
+#ifndef _MSC_VER
     if (includePid)
         return (format("%1%/%2%-%3%-%4%") % tmpRoot % prefix % getpid() % counter++).str();
     else
+#endif
         return (format("%1%/%2%-%3%") % tmpRoot % prefix % counter++).str();
 }
 
@@ -360,7 +405,11 @@ Path createTempDir(const Path & tmpRoot, const Path & prefix,
     while (1) {
         checkInterrupt();
         Path tmpDir = tempName(tmpRoot, prefix, includePid, counter);
+#ifdef _MSC_VER
+        if (_mkdir(tmpDir.c_str()) == 0) {
+#else
         if (mkdir(tmpDir.c_str(), mode) == 0) {
+#endif
             /* Explicitly set the group of the directory.  This is to
                work around around problems caused by BSD's group
                ownership semantics (directories inherit the group of
@@ -369,8 +418,10 @@ Path createTempDir(const Path & tmpRoot, const Path & prefix,
                will be owned by "wheel"; but if the user is not in
                "wheel", then "tar" will fail to unpack archives that
                have the setgid bit set on directories. */
+#ifndef _MSC_VER
             if (chown(tmpDir.c_str(), (uid_t) -1, getegid()) != 0)
                 throw SysError(format("setting group of directory ‘%1%’") % tmpDir);
+#endif
             return tmpDir;
         }
         if (errno != EEXIST)
@@ -385,9 +436,17 @@ Paths createDirs(const Path & path)
     if (path == "/") return created;
 
     struct stat st;
+#ifdef _MSC_VER
+    if (stat(path.c_str(), &st) == -1) {
+#else
     if (lstat(path.c_str(), &st) == -1) {
+#endif
         created = createDirs(dirOf(path));
+#ifdef _MSC_VER
+        if (_mkdir(path.c_str()) == -1 && errno != EEXIST)
+#else
         if (mkdir(path.c_str(), 0777) == -1 && errno != EEXIST)
+#endif
             throw SysError(format("creating directory ‘%1%’") % path);
         st = lstat(path);
         created.push_back(path);
@@ -404,8 +463,10 @@ Paths createDirs(const Path & path)
 
 void createSymlink(const Path & target, const Path & link)
 {
+#ifndef _MSC_VER
     if (symlink(target.c_str(), link.c_str()))
         throw SysError(format("creating symlink from ‘%1%’ to ‘%2%’") % link % target);
+#endif
 }
 
 
@@ -469,7 +530,7 @@ void printMsg_(Verbosity level, const FormatOrString & fs)
     else if (logType == ltEscapes && level != lvlInfo)
         prefix = "\033[" + escVerbosity(level) + "s";
     string s = (format("%1%%2%\n") % prefix % fs.s).str();
-    if (!isatty(STDERR_FILENO)) s = filterANSIEscapes(s);
+    if (!_isatty(STDERR_FILENO)) s = filterANSIEscapes(s);
     writeToStderr(s);
 }
 
@@ -508,7 +569,7 @@ void readFull(int fd, unsigned char * buf, size_t count)
 {
     while (count) {
         checkInterrupt();
-        ssize_t res = read(fd, (char *) buf, count);
+        ssize_t res = _read(fd, (char *) buf, count);
         if (res == -1) {
             if (errno == EINTR) continue;
             throw SysError("reading from file");
@@ -524,7 +585,7 @@ void writeFull(int fd, const unsigned char * buf, size_t count)
 {
     while (count) {
         checkInterrupt();
-        ssize_t res = write(fd, (char *) buf, count);
+        ssize_t res = _write(fd, (char *) buf, count);
         if (res == -1) {
             if (errno == EINTR) continue;
             throw SysError("writing to file");
@@ -547,7 +608,7 @@ string drainFD(int fd)
     unsigned char buffer[4096];
     while (1) {
         checkInterrupt();
-        ssize_t rd = read(fd, buffer, sizeof buffer);
+        ssize_t rd = _read(fd, buffer, sizeof buffer);
         if (rd == -1) {
             if (errno != EINTR)
                 throw SysError("reading from file");
@@ -646,7 +707,7 @@ AutoCloseFD::operator int() const
 void AutoCloseFD::close()
 {
     if (fd != -1) {
-        if (::close(fd) == -1)
+        if (_close(fd) == -1)
             /* This should never happen. */
             throw SysError(format("closing file descriptor %1%") % fd);
         fd = -1;
@@ -671,12 +732,14 @@ int AutoCloseFD::borrow()
 
 void Pipe::create()
 {
+#ifndef _MSC_VER
     int fds[2];
     if (pipe(fds) != 0) throw SysError("creating pipe");
     readSide = fds[0];
     writeSide = fds[1];
     closeOnExec(readSide);
     closeOnExec(writeSide);
+#endif
 }
 
 
@@ -762,6 +825,7 @@ void Pid::kill(bool quiet)
 {
     if (pid == -1 || pid == 0) return;
 
+#ifndef _MSC_VER
     if (!quiet)
         printMsg(lvlError, format("killing process %1%") % pid);
 
@@ -783,11 +847,15 @@ void Pid::kill(bool quiet)
     }
 
     pid = -1;
+#endif
 }
 
 
 int Pid::wait(bool block)
 {
+#ifdef _MSC_VER
+    return -1;
+#else
     assert(pid != -1);
     while (1) {
         int status;
@@ -801,6 +869,7 @@ int Pid::wait(bool block)
             throw SysError("cannot get child exit status");
         checkInterrupt();
     }
+#endif
 }
 
 
@@ -818,6 +887,7 @@ void Pid::setKillSignal(int signal)
 
 void killUser(uid_t uid)
 {
+#ifndef _MSC_VER
     debug(format("killing all processes running under uid ‘%1%’") % uid);
 
     assert(uid != 0); /* just to be safe... */
@@ -861,16 +931,22 @@ void killUser(uid_t uid)
        no processes left running under `uid', but there is no portable
        way to do so (I think).  The most reliable way may be `ps -eo
        uid | grep -q $uid'. */
+#endif
 }
 
 
 //////////////////////////////////////////////////////////////////////
 
 
+#ifdef _MSC_VER
+static pid_t doFork(bool allowVfork, std::function<void()> fun)
+{
+    return -1;
+}
+#else
 /* Wrapper around vfork to prevent the child process from clobbering
    the caller's stack frame in the parent. */
 static pid_t doFork(bool allowVfork, std::function<void()> fun) __attribute__((noinline));
-static pid_t doFork(bool allowVfork, std::function<void()> fun)
 {
 #ifdef __linux__
     pid_t pid = allowVfork ? vfork() : fork();
@@ -909,6 +985,7 @@ pid_t startProcess(std::function<void()> fun, const ProcessOptions & options)
     if (pid == -1) throw SysError("unable to fork");
 
     return pid;
+#endif
 }
 
 
@@ -923,6 +1000,9 @@ std::vector<const char *> stringsToCharPtrs(const Strings & ss)
 
 string runProgram(Path program, bool searchPath, const Strings & args)
 {
+#ifdef _MSC_VER
+    return "";
+#else
     checkInterrupt();
 
     /* Create a pipe. */
@@ -957,36 +1037,43 @@ string runProgram(Path program, bool searchPath, const Strings & args)
             % program % statusToString(status));
 
     return result;
+#endif
 }
 
 
 void closeMostFDs(const set<int> & exceptions)
 {
+#ifndef _MSC_VER
     int maxFD = 0;
     maxFD = sysconf(_SC_OPEN_MAX);
     for (int fd = 0; fd < maxFD; ++fd)
         if (fd != STDIN_FILENO && fd != STDOUT_FILENO && fd != STDERR_FILENO
             && exceptions.find(fd) == exceptions.end())
             close(fd); /* ignore result */
+#endif
 }
 
 
 void closeOnExec(int fd)
 {
+#ifndef _MSC_VER
     int prev;
     if ((prev = fcntl(fd, F_GETFD, 0)) == -1 ||
         fcntl(fd, F_SETFD, prev | FD_CLOEXEC) == -1)
         throw SysError("setting close-on-exec flag");
+#endif
 }
 
 
 void restoreSIGPIPE()
 {
+#ifndef _MSC_VER
     struct sigaction act;
     act.sa_handler = SIG_DFL;
     act.sa_flags = 0;
     sigemptyset(&act.sa_mask);
     if (sigaction(SIGPIPE, &act, 0)) throw SysError("resetting SIGPIPE");
+#endif
 }
 
 
@@ -1061,6 +1148,9 @@ string chomp(const string & s)
 
 string statusToString(int status)
 {
+#ifdef _MSC_VER
+    return "";
+#else
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         if (WIFEXITED(status))
             return (format("failed with exit code %1%") % WEXITSTATUS(status)).str();
@@ -1076,12 +1166,17 @@ string statusToString(int status)
         else
             return "died abnormally";
     } else return "succeeded";
+#endif
 }
 
 
 bool statusOk(int status)
 {
+#ifdef _MSC_VER
+    return true;
+#else
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
 }
 
 
@@ -1093,7 +1188,12 @@ bool hasSuffix(const string & s, const string & suffix)
 
 void expect(std::istream & str, const string & s)
 {
+#ifdef _MSC_VER
+    char * s2 = new char[s.size()];
+    std::auto_ptr<char> abuf(s2);
+#else
     char s2[s.size()];
+#endif
     str.read(s2, s.size());
     if (string(s2, s.size()) != s)
         throw FormatError(format("expected string ‘%1%’") % s);

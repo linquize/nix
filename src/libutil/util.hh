@@ -5,7 +5,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#ifdef _WIN32
+typedef int pid_t;
+typedef int uid_t;
+typedef unsigned short mode_t;
+#else
 #include <unistd.h>
+#endif
 #include <signal.h>
 #include <functional>
 

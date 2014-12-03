@@ -5,6 +5,10 @@ VisualStudioVersion = 12.0.21005.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nixformat", "src\boost\format\nixformat.vcxproj", "{0D76FA90-693F-4776-8182-4255DFF1811E}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libutil", "src\libutil\libutil.vcxproj", "{89074DEB-717F-4400-A809-8753D62C624B}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "regex", "src\regex\regex.vcxproj", "{B0C23FCC-4E45-4DF9-9FF8-0827A6180715}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -15,6 +19,14 @@ Global
 		{0D76FA90-693F-4776-8182-4255DFF1811E}.Debug|Win32.Build.0 = Debug|Win32
 		{0D76FA90-693F-4776-8182-4255DFF1811E}.Release|Win32.ActiveCfg = Release|Win32
 		{0D76FA90-693F-4776-8182-4255DFF1811E}.Release|Win32.Build.0 = Release|Win32
+		{89074DEB-717F-4400-A809-8753D62C624B}.Debug|Win32.ActiveCfg = Debug|Win32
+		{89074DEB-717F-4400-A809-8753D62C624B}.Debug|Win32.Build.0 = Debug|Win32
+		{89074DEB-717F-4400-A809-8753D62C624B}.Release|Win32.ActiveCfg = Release|Win32
+		{89074DEB-717F-4400-A809-8753D62C624B}.Release|Win32.Build.0 = Release|Win32
+		{B0C23FCC-4E45-4DF9-9FF8-0827A6180715}.Debug|Win32.ActiveCfg = Debug|Win32
+		{B0C23FCC-4E45-4DF9-9FF8-0827A6180715}.Debug|Win32.Build.0 = Debug|Win32
+		{B0C23FCC-4E45-4DF9-9FF8-0827A6180715}.Release|Win32.ActiveCfg = Release|Win32
+		{B0C23FCC-4E45-4DF9-9FF8-0827A6180715}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

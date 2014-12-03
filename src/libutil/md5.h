@@ -35,7 +35,11 @@ struct MD5_CTX
 
   md5_uint32 total[2];
   md5_uint32 buflen;
+#ifdef _MSC_VER
+  char buffer[128];
+#else
   char buffer[128] __attribute__ ((__aligned__ (__alignof__ (md5_uint32))));
+#endif
 };
 
 /*

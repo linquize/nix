@@ -28,15 +28,25 @@ bool Regex::matches(const string & s)
 
 bool Regex::matches(const string & s, Subs & subs)
 {
+#ifdef _MSC_VER
+    regmatch_t * pmatch = new regmatch_t[nrParens + 2];
+#else
     regmatch_t pmatch[nrParens + 2];
+#endif
     int err = regexec(&preg, s.c_str(), nrParens + 2, pmatch, 0);
     if (err == 0) {
         for (unsigned int n = 2; n < nrParens + 2; ++n)
             if (pmatch[n].rm_eo != -1)
                 subs[n - 2] = string(s, pmatch[n].rm_so, pmatch[n].rm_eo - pmatch[n].rm_so);
+#ifdef _MSC_VER
+        delete[] pmatch;
+#endif
         return true;
     }
-    else if (err == REG_NOMATCH) return false;
+#ifdef _MSC_VER
+    delete[] pmatch;
+#endif
+    if (err == REG_NOMATCH) return false;
     throw Error(format("matching string ‘%1%’: %2%") % s % showError(err));
 }
 
